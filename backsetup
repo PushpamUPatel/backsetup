@@ -1,0 +1,336 @@
+#!/bin/bash
+
+# Check: sudo
+set -e
+sudo -V
+set +e
+
+# ROOT="$HOME/BACKUP-$(date +%d)-$(date +%m)-$(date +%Y)"
+ROOT="$HOME/BACKUP"
+
+DEPS="$ROOT/home/$USER/Software/deps"
+
+if [[ ! -d $ROOT ]]
+then
+	mkdir $ROOT
+fi
+
+# Help
+echo -e "\n\033[1;96;100m Help: \033[0m"
+echo -e "\033[1;32mBKP: [ S(kip) / b(ackup) / r(estore) / q(uit) ]:"
+echo -e "ADD: [ S(kip) / i(nstall) /u(ninstall) / q(uit) ]:\033[0m\n"
+
+# Functions
+BKP() {
+	# Argunment handeling
+	echo -e -n "\033[1;36m$2 $1 [S/b/r/q]: \033[0m"
+	read ARG
+	if [[ $ARG == 'S' || $ARG == 's' || $ARG == '' ]]
+	then
+		echo ""
+		return
+	elif [[ $ARG == 'B' || $ARG == 'b' ]]
+	then
+		FROM=''
+		TO=$ROOT
+	elif [[ $ARG == 'R' || $ARG == 'r' ]]
+	then
+		FROM=$ROOT
+		TO=''
+	elif [[ $ARG == 'Q' || $ARG == 'q' ]]
+	then
+		sudo chown -R $USER:$USER $ROOT/*
+		exit
+	else
+		echo -e "\033[1;31mNot a valid argunment...! \033[0m\n"
+		return
+	fi
+
+	# Backup/Restore
+	if [[ $1 == '-rf' && $2 != '' && -f $FROM$2 ]]
+	then
+		sudo mkdir -p $(dirname $TO$2)
+		sudo cp $FROM$2 $TO$2
+		echo -e "\033[1;32m$TO$2 is done... \033[0m\n"
+		return
+	elif [[ $1 == '-hf' && $2 != '' && -f $FROM$HOME$2 ]]
+	then
+		mkdir -p $(dirname $TO$HOME$2)
+		cp $FROM$HOME$2 $TO$HOME$2
+		echo -e "\033[1;32m$TO$HOME$2 is done... \033[0m\n"
+		return
+	elif [[ $1 == '-rd' && $2 != '' && -d $FROM$2 ]]
+	then
+		sudo mkdir -p $(dirname $TO$2)
+		if [[ -d $TO$2 ]]
+		then
+			sudo rm -r $TO$2
+		fi
+		sudo cp -r $FROM$2 $TO$2
+		echo -e "\033[1;32m$TO$2 is done... \033[0m\n"
+		return
+	elif [[ $1 == '-hd' && $2 != '' && -d $FROM$HOME$2 ]]
+	then
+		mkdir -p $(dirname $TO$HOME$2)
+		if [[ -d $TO$HOME$2 ]]
+		then
+			rm -r $TO$HOME$2
+		fi
+		cp -r $FROM$HOME$2 $TO$HOME$2
+		echo -e "\033[1;32m$TO$HOME$2 is done... \033[0m\n"
+		return
+	else
+		echo -e "\033[1;31mError in BKP flag or file/directory not exixt...! \033[0m\n"
+		return
+	fi
+}
+
+COND=""
+CMD() {
+	if [[ $1 == $STAT ]]
+	then
+		eval $2
+	fi
+}
+
+MAKE() {
+	set -e
+	unzip $DEPS/$1.zip -d $DEPS/
+	make -C $DEPS/$1/
+	sudo make install -C $DEPS/$1/
+	sudo rm -r $DEPS/$1/
+	set +e
+}
+
+ADD() {
+	echo -e -n "\033[1;36m$2 ($3) [S/i/u/q]: \033[0m"
+	read ARG
+	if [[ $ARG == 'S' || $ARG == 's' || $ARG == '' ]]
+	then
+		COND="-ifS"
+		eval $1
+		eval $4
+		return
+	elif [[ $ARG == 'I' || $ARG == 'i' ]]
+	then
+		COND="-ifI"
+		eval $1
+		sudo apt-get install -y $3
+		eval $4
+		return
+	elif [[ $ARG == 'U' || $ARG == 'u' ]]
+	then
+		STAT="-ifU"
+		eval $1
+		sudo apt-get purge -y $3
+		sudo apt-get autoremove -y
+		eval $4
+		return
+	elif [[ $ARG == 'Q' || $ARG == 'q' ]]
+	then
+		sudo chown -R $USER:$USER $ROOT/*
+		exit
+	else
+		echo -e "\033[1;31mNot a valid argunment...! \033[0m\n"
+		return
+	fi
+}
+
+##### Usage #####
+
+# TTY
+BKP -rf /etc/default/console-setup
+
+# grub
+ADD "" \
+"To update grub configs select 'i'" "" \
+" \
+	BKP -rf /etc/default/grub; \
+	CMD -ifI \"sudo update-grub2\"; \
+"
+
+# Scripts
+BKP -rf /bin/backsetup
+BKP -rf /bin/note
+
+# nano
+BKP -rf /etc/nanorc
+
+# BASH
+BKP -hf /.bashrc
+BKP -hf /.profile
+
+# Compilers & Tools
+ADD "" \
+"Compilers & Tools" "gcc g++ make zip tlp thermald ufw curl net-tools network-manager ffmpeg" \
+""
+
+ADD "" \
+"File System tools" "dosfstools ntfs-3g" \
+""
+
+# Windowing system X11 & Sound utilities & BSPWM
+ADD "" \
+"Windowing system X11 & Sound utilities" "xorg alsa-utils pulseaudio pavucontrol-qt" \
+" \
+	BKP -rf /etc/X11/xinit/xinitrc; \
+	BKP -rf /usr/share/X11/xorg.conf.d/40-libinput.conf; \
+	BKP -hf /.Xresources; \
+"
+
+ADD "" \
+"Deps for BSPWM & SXHKD" "xcb libxcb-util0-dev libxcb-ewmh-dev libxcb-randr0-dev libxcb-xinerama0-dev libxcb-icccm4-dev libxcb-keysyms1-dev libxcb-shape0-dev" \
+" \
+	CMD -ifI \"MAKE bspwm-master \"; \
+	CMD -ifI \"MAKE sxhkd-master \"; \
+	BKP -hd /.config/bspwm/; \
+	BKP -hd /.config/sxhkd/; \
+"
+
+ADD "" \
+"Deps for lemonbar-xft" "libxft-dev libx11-xcb-dev" \
+" \
+	CMD -ifI \"MAKE lemonbar-xft-xft-port \"; \
+	CMD -ifI \"MAKE xtitle-master \"; \
+	BKP -hd /.config/bar/; \
+"
+
+ADD " \
+" \
+"Deps for dmenu-xft" "libxinerama-dev" \
+" \
+	CMD -ifI \"MAKE dmenu-xft-master \"; \
+"
+
+ADD "" \
+"Deps for xdo" "libxcb-xtest0-dev" \
+" \
+	CMD -ifI \"MAKE xdo-master \"; \
+"
+
+ADD "" \
+"Deps for sutils" "libasound2-dev" \
+" \
+	CMD -ifI \"MAKE sutils-master \"; \
+"
+
+# Server stacks
+
+## Apache Server
+ADD "" \
+"Apache Server" "apache2" \
+" \
+	CMD -ifI \"sudo ufw app info 'WWW Full'\"; \
+	CMD -ifI \"sudo systemctl status apache2.service\"; \
+	CMD -ifI \"sudo a2enmod cgi \"; \
+	BKP -rd /etc/apache2/; \
+	CMD -ifI \"sudo a2enconf serve-cgi-bin \"; \
+	CMD -ifI \"sudo a2ensite sample0.test.conf \"; \
+	CMD -ifI \"sudo a2ensite sample1.test.conf \"; \
+	CMD -ifI \"sudo a2ensite share.conf \"; \
+	BKP -hd /vhost/; \
+	BKP -rf /etc/hosts; \
+	CMD -ifI \"sudo systemctl reload apache2 \"; \
+"
+
+## Mysql / Mariadb
+ADD "" \
+"Mysql" "default-mysql-server" \
+" \
+	CMD -ifI \"sudo mysql_secure_installation\"; \
+"
+
+## PHP
+ADD "" \
+"php (debian default)" "php php-mysql php-curl php-gd php-mbstring php-xml php-xmlrpc php-soap php-intl libapache2-mod-php php-json php-zip php-cli" \
+""
+
+echo "GRANT SELECT, INSERT, UPDATE, DELETE ON phpmyadmin.* TO 'pma'@'localhost' IDENTIFIED BY 'password'"
+
+ADD " \
+	BKP -rf /etc/apt/trusted.gpg.d/php.gpg; \
+	BKP -rf /etc/apt/sources.list.d/php.list; \
+	CMD -ifI \"sudo apt-get update\"; \
+" \
+"php7.4" "php7.4 php7.4-mysql php7.4-curl php7.4-gd php7.4-mbstring php7.4-xml php7.4-xmlrpc php7.4-soap php7.4-intl libapache2-mod-php7.4 php7.4-json php7.4-zip php7.4-cli" \
+" \
+	BKP -rd /usr/share/phpmyadmin/; \
+	BKP -rf /etc/apache2/conf-available/phpmyadmin.conf; \
+	CMD -ifI \"sudo mkdir -p /var/lib/phpmyadmin/tmp \"; \
+	CMD -ifI \"sudo chown -R www-data:www-data /var/lib/phpmyadmin \"; \
+	CMD -ifI \"sudo mariadb < /usr/share/phpmyadmin/sql/create_tables.sql \"; \
+	CMD -ifI \"sudo mysql \"; \
+	CMD -ifI \"sudo a2enconf phpmyadmin.conf \"; \
+	CMD -ifI \"sudo systemctl reload apache2 \"; \
+	CMD -ifI \"curl -s https://getcomposer.org/installer | php7.4 \"; \
+	CMD -ifI \"sudo mv composer.phar /usr/local/bin/composer \"; \
+	CMD -ifI \"sudo chmod +x /usr/local/bin/composer \"; \
+"
+
+## PostgreSQL
+ADD "" \
+"Postgre SQL" "postgresql postgresql-contrib" \
+""
+
+## Erlang + Elixir + NodeJs + Phenix Deps
+ADD " \
+	CMD -ifI \"sudo dpkg -i $DEPS/erlang-solutions_2.0_all.deb \"; \
+	CMD -ifI \"sudo apt-get update \"; \
+" \
+"Erlang Solutions 2.0, Elixir, NodeJs & phenix deps" "esl-erlang erlang-dev erlang-parsetools elixir nodejs npm inotify-tools" \
+""
+
+# GUI tools
+ADD "" \
+"Browser, File Manager, Video Player, Image Viewer, Image-Audio Editor & Office" "chromium firefox-esr thunar mplayer feh gimp audacity libreoffice-gtk3" \
+" \
+	BKP -hd /.config/gtk-3.0/; \
+	BKP -hd /.config/wallpaper/; \
+"
+
+ADD "" \
+"Fonts Indian(Devanagari), Korean" "fonts-samyak fonts-nanum" \
+""
+
+ADD "" \
+"Software: Blender Inkscape VScode" "" \
+" \
+	BKP -hf /Software/blender-2.92.0-linux64.tar.xz; \
+	BKP -hd /.config/blender/; \
+	BKP -hf /Software/Inkscape-c4e8f9e-x86_64.AppImage; \
+	BKP -hd /.config/inkscape/; \
+	BKP -hf /Software/code_1.56.2-1620838498_amd64.deb; \
+"
+
+ADD "
+	BKP -rf /etc/apt/trusted.gpg.d/atom.gpg; \
+	BKP -rf /etc/apt/sources.list.d/atom.list; \
+	CMD -ifI \"sudo apt-get update \"; \
+" \
+"Atom" "atom" \
+" \
+	BKP -hd /.atom/blob-store/; \
+	BKP -hd /.atom/compile-cache/; \
+	BKP -hd /.atom/packages/; \
+	BKP -hd /.atom/recovery/; \
+	BKP -hd /.atom/storage/; \
+	BKP -hf /.atom/config.cson; \
+	BKP -hf /.atom/github.cson; \
+	BKP -hf /.atom/nohup.out; \
+"
+
+# Wifi
+ADD " \
+	BKP -rf /etc/apt/sources.list; \
+	CMD -ifI \"sudo apt-get update\"; \
+" \
+"Wifi" "firmware-iwlwifi" \
+""
+
+# Home
+BKP -hd /Software/deps/
+BKP -hd /Software/Code/
+BKP -hd /Documents/
+BKP -hd /Notes/
+
+sudo chown -R $USER:$USER $ROOT/*
